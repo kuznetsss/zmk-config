@@ -9,9 +9,8 @@
 #include <dt-bindings/zmk/keys.h>
 
 &lt {
-    tapping-term-ms = <100>;
-    flavor = "balanced";
-    retro-tap;
+    tapping-term-ms = <200>;
+    flavor = "hold-preferred";
 };
 
 / {
