@@ -24,7 +24,7 @@
             #binding-cells = <2>;
             tapping-term-ms = <200>;
             flavor = "balanced";
-            hold-trigger-key-positions = <6 18 30 31 19 7 8 20 32 33 21 9 10 22 34 39 40 41>;
+            hold-trigger-key-positions = <6 18 30 31 19 7 8 20 32 33 21 9 10 22 34 39 40 41 11 23 35>;
         };
 
         rhr: rhr {
