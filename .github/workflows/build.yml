@@ -1,5 +1,76 @@
-on: [push, pull_request, workflow_dispatch]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      zmk_revision:
+        description: "Optional ZMK commit SHA, branch, or tag to build against. Leave empty to use the revision pinned in config/west.yml."
+        required: false
+        type: string
+
+permissions:
+  contents: write
 
 jobs:
+  set-zmk-revision:
+    if: github.event_name == 'workflow_dispatch' && inputs.zmk_revision != ''
+    runs-on: ubuntu-latest
+    outputs:
+      commit_sha: ${{ steps.commit.outputs.commit_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Pin ZMK revision for this run
+        env:
+          ZMK_REVISION: ${{ inputs.zmk_revision }}
+        run: |
+          if ! [[ "$ZMK_REVISION" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+            echo "Invalid ZMK revision: $ZMK_REVISION" >&2
+            exit 1
+          fi
+          # Only touch the revision of the zmk project
+          sed -i "/^[[:space:]]*- name: zmk[[:space:]]*$/,/^[[:space:]]*import:/ s|^\([[:space:]]*revision:\).*|\1 ${ZMK_REVISION}|" config/west.yml
+          cat config/west.yml
+          if git diff --quiet config/west.yml; then
+            echo "config/west.yml already uses ${ZMK_REVISION}; nothing to change" >&2
+            exit 1
+          fi
+
+      - name: Commit and push temporary pin
+        id: commit
+        env:
+          ZMK_REVISION: ${{ inputs.zmk_revision }}
+          REF: ${{ github.ref }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add config/west.yml
+          git commit -m "ci: temporarily pin ZMK to ${ZMK_REVISION} (auto-reverted)"
+          git push origin "HEAD:${REF}"
+          echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: [set-zmk-revision]
+    if: always() && (needs.set-zmk-revision.result == 'success' || needs.set-zmk-revision.result == 'skipped')
     uses: zmkfirmware/zmk/.github/workflows/build-user-config.yml@main
+
+  revert-zmk-revision:
+    needs: [set-zmk-revision, build]
+    if: always() && needs.set-zmk-revision.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Revert temporary pin
+        env:
+          COMMIT_SHA: ${{ needs.set-zmk-revision.outputs.commit_sha }}
+          REF: ${{ github.ref }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git revert --no-edit "$COMMIT_SHA"
+          git push origin "HEAD:${REF}"
